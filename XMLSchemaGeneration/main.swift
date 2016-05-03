@@ -10,12 +10,57 @@ import Foundation
 
 func typeStringToSwiftType(_ typeString : String) -> String {
     let transformedComponents = typeString.components(separatedBy: "_")
-    return transformedComponents.map { string in
+    let modifiedTypeString = transformedComponents.map { string in
         // The start index is the first letter
         let first = string.startIndex
         let rest = first.successor()..<string.endIndex
         return string[first...first].uppercased() + string[rest]
         }.joined(separator: "")
+    
+    switch modifiedTypeString {
+    case "Xs:double":
+        return "Double"
+    case "Xs:long":
+        return "Int"
+    case "Xs:int":
+        return "Int32"
+    case "Xs:unsignedLong":
+        return "UInt"
+    case "Xs:hexBinary":
+        return "[UInt8]"
+    case "Xs:short":
+        return "Int16"
+    case "Xs:unsignedByte":
+        return "UInt8"
+    case "Xs:unsignedInt":
+        fallthrough
+    case "Xs:positiveInteger":
+        fallthrough
+    case "Xs:nonNegativeInteger":
+        return "UInt32"
+    case "Xs:float":
+        return "Float"
+    case "Xs:dateTime":
+        return "NSDate"
+    case "Xs:anyURI":
+        fallthrough
+    case "Xs:Name":
+        fallthrough
+    case "Xs:NMTOKEN":
+        fallthrough
+    case "Xs:ID":
+        fallthrough
+    case "Xs:token":
+        fallthrough
+    case "Xs:NCName":
+        fallthrough
+    case "Xs:string":
+        return "String"
+    case "Xs:boolean":
+        return "Bool"
+    default:
+        return modifiedTypeString
+    }
 }
 
 func varNameStringToSwiftName(_ typeString : String) -> String {
@@ -26,6 +71,31 @@ func varNameStringToSwiftName(_ typeString : String) -> String {
         let rest = first.successor()..<string.endIndex
         return string[first...first].uppercased() + string[rest]
         }.joined(separator: "")
+}
+
+struct XMLSimpleType {
+    let name : String
+    let base : String
+    
+    init(xmlElement: NSXMLElement) {
+        self.name = typeStringToSwiftType(xmlElement.attribute(forName: "name")!.stringValue!)
+        
+        if let restriction = xmlElement.elements(forName: "xs:restriction").first {
+            self.base = typeStringToSwiftType(restriction.attribute(forName: "base")!.stringValue!)
+            
+        } else if let list = xmlElement.elements(forName: "xs:list").first {
+            let elementType = typeStringToSwiftType(list.attribute(forName: "itemType")!.stringValue!)
+            self.base = "[\(elementType)]"
+        } else if let _ = xmlElement.elements(forName: "xs:union").first {
+            self.base = "Int32"
+        } else {
+            fatalError()
+        }
+    }
+    
+    func toSwift() -> String {
+        return "typealias \(name) = \(base)"
+    }
 }
 
 struct XMLAttribute {
@@ -119,7 +189,12 @@ struct XMLClass {
 }
 
 let document = try! NSXMLDocument(contentsOf: NSURL(string: "https://www.khronos.org/files/collada_schema_1_5")!, options: 0)
+let typealiases = document.rootElement()!.elements(forName: "xs:simpleType")
 let classes = document.rootElement()!.elements(forName: "xs:complexType")
+
+for xmlNode in typealiases {
+    print(XMLSimpleType(xmlElement: xmlNode).toSwift())
+}
 
 for xmlNode in classes {
     
