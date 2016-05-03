@@ -165,6 +165,7 @@ struct XMLClass {
     let documentation : String?
     let attributes : [XMLAttribute]
     let sequenceElements : [XMLSequenceElement]
+    let simpleContentType : String?
     
     init(xmlElement: NSXMLElement) {
         let className = xmlElement.attribute(forName: "name")!.stringValue!
@@ -176,6 +177,7 @@ struct XMLClass {
         self.attributes = xmlElement.elements(forName: "xs:attribute").map { XMLAttribute(xmlElement: $0) }
         self.sequenceElements = xmlElement.elements(forName: "xs:sequence").first?.elements(forName: "xs:element").flatMap { XMLSequenceElement(xmlElement: $0) } ?? []
         
+        self.simpleContentType = xmlElement.elements(forName: "xs:simpleContent").first?.elements(forName: "xs:extension").first?.attribute(forName: "base").map { typeStringToSwiftType($0.stringValue!) }
     }
     
     func toSwift() -> String {
@@ -183,7 +185,11 @@ struct XMLClass {
                    "class \(name) {",
                    self.attributes.map { $0.toSwift() }.joined(separator: "\n\n"),
                    self.sequenceElements.map { $0.toSwift() }.joined(separator: "\n\n"),
+                   (self.simpleContentType != nil ? "\tlet data: \(self.simpleContentType!)" : ""),
                 "",
+                "\tinit(xmlElement: NSXMLElement) {",
+                "",
+                "\t}",
                 "}"].joined(separator: "\n")
     }
 }
