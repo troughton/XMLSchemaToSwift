@@ -18,6 +18,7 @@ func typeStringToSwiftType(_ typeString : String) -> String {
         }.joined(separator: "")
     
     switch modifiedTypeString {
+        
     case "Xs:double":
         return "Double"
     case "Xs:long":
@@ -26,6 +27,8 @@ func typeStringToSwiftType(_ typeString : String) -> String {
         return "Int32"
     case "Xs:unsignedLong":
         return "UInt"
+    case "Xs:byte":
+        fallthrough
     case "Xs:hexBinary":
         return "[UInt8]"
     case "Xs:short":
@@ -42,6 +45,8 @@ func typeStringToSwiftType(_ typeString : String) -> String {
         return "Float"
     case "Xs:dateTime":
         return "NSDate"
+    case "Xs:IDREFS":
+        fallthrough
     case "Xs:anyURI":
         fallthrough
     case "Xs:Name":
@@ -65,12 +70,14 @@ func typeStringToSwiftType(_ typeString : String) -> String {
 
 func varNameStringToSwiftName(_ typeString : String) -> String {
     let transformedComponents = typeString.components(separatedBy: "_")
-    return transformedComponents.first! + transformedComponents.dropFirst().map { string in
+    let varName = transformedComponents.first! + transformedComponents.dropFirst().map { string in
         // The start index is the first letter
         let first = string.startIndex
         let rest = first.successor()..<string.endIndex
         return string[first...first].uppercased() + string[rest]
         }.joined(separator: "")
+    if varName == "operator" { return "theOperator" }
+    return varName
 }
 
 struct XMLSimpleType {
@@ -112,6 +119,17 @@ struct XMLAttribute {
         self.documentation = xmlElement.elements(forName: "xs:annotation").first?.elements(forName: "xs:documentation").first?.stringValue
     }
     
+    var initialiserText : String {
+        if isRequired {
+            return "\t\tself.\(self.name) = \(type)(xmlElement.attribute(forName: \"\(name)\")!.stringValue!)\n"
+        } else {
+            return ["\t\tif let attribute = xmlElement.attribute(forName: \"\(name)\") {",
+                    "\t\t\tself.\(self.name) = \(type)(attribute.stringValue!)",
+                    "\t\t} else { self.\(self.name) = nil }\n"
+            ].joined(separator: "\n")
+        }
+    }
+    
     func toSwift() -> String {
         return "\t/**\(documentation ?? "")*/\n\tlet \(name): \(type)\(isRequired ? "" : "?")"
     }
@@ -143,6 +161,19 @@ struct XMLSequenceElement {
         }
         
         self.documentation = xmlElement.elements(forName: "xs:annotation").first?.elements(forName: "xs:documentation").first?.stringValue
+    }
+    
+    var initialiserText : String {
+        switch (minOccurs, maxOccurs) {
+        case (1, 1):
+            return "\t\tself.\(self.name) = \(type)(xmlElement: xmlElement.elements(forName: \"\(self.name)\").first!)\n"
+        case (0, 1):
+            return ["\t\tif let childElement = xmlElement.elements(forName: \"\(self.name)\").first {",
+                    "\t\t\tself.\(self.name) = \(type)(xmlElement: childElement)",
+                    "\t\t} else { self.\(self.name) = nil }\n"].joined(separator: "\n")
+        default:
+            return "\t\tself.\(self.name) = xmlElement.elements(forName: \"\(self.name)\").map { \(type)(xmlElement: $0) }\n"
+        }
     }
     
     func toSwift() -> String {
@@ -180,6 +211,25 @@ struct XMLClass {
         self.simpleContentType = xmlElement.elements(forName: "xs:simpleContent").first?.elements(forName: "xs:extension").first?.attribute(forName: "base").map { typeStringToSwiftType($0.stringValue!) }
     }
     
+    var initialiserText : String {
+        
+        var initialiserText = "\tinit(xmlElement: NSXMLElement) {\n"
+        
+        if let simpleContentType = self.simpleContentType {
+            initialiserText += "\t\tself.data = \(simpleContentType)(xmlElement.stringValue!)\n"
+        }
+        
+        for attribute in attributes {
+            initialiserText += attribute.initialiserText
+        }
+        
+        for sequenceElement in sequenceElements {
+            initialiserText += sequenceElement.initialiserText
+        }
+        
+        return initialiserText + "\t}\n"
+    }
+    
     func toSwift() -> String {
         return ["/**\(documentation ?? "\n")*/",
                    "class \(name) {",
@@ -187,9 +237,7 @@ struct XMLClass {
                    self.sequenceElements.map { $0.toSwift() }.joined(separator: "\n\n"),
                    (self.simpleContentType != nil ? "\tlet data: \(self.simpleContentType!)" : ""),
                 "",
-                "\tinit(xmlElement: NSXMLElement) {",
-                "",
-                "\t}",
+                self.initialiserText,
                 "}"].joined(separator: "\n")
     }
 }
@@ -197,6 +245,8 @@ struct XMLClass {
 let document = try! NSXMLDocument(contentsOf: NSURL(string: "https://www.khronos.org/files/collada_schema_1_5")!, options: 0)
 let typealiases = document.rootElement()!.elements(forName: "xs:simpleType")
 let classes = document.rootElement()!.elements(forName: "xs:complexType")
+
+print("import Foundation\n\n")
 
 for xmlNode in typealiases {
     print(XMLSimpleType(xmlElement: xmlNode).toSwift())

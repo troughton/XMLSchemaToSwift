@@ -4,6 +4,11 @@
 <dict>
 	<key>SchemeUserState</key>
 	<dict>
+		<key>SchemaTest.xcscheme</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>1</integer>
+		</dict>
 		<key>XMLSchemaGeneration.xcscheme</key>
 		<dict>
 			<key>orderHint</key>
@@ -12,6 +17,11 @@
 	</dict>
 	<key>SuppressBuildableAutocreation</key>
 	<dict>
+		<key>E91E62C01CD8B46C00612CC4</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
 		<key>E91E92701CD869350050191C</key>
 		<dict>
 			<key>primary</key>
