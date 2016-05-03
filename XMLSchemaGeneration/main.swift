@@ -8,6 +8,8 @@
 
 import Foundation
 
+var typealiasedStrings : Set<String> = ["String"]
+
 func typeStringToSwiftType(_ typeString : String) -> String {
     let transformedComponents = typeString.components(separatedBy: "_")
     let modifiedTypeString = transformedComponents.map { string in
@@ -98,6 +100,10 @@ struct XMLSimpleType {
         } else {
             fatalError()
         }
+        
+        if self.base == "String" {
+            typealiasedStrings.insert(self.name)
+        }
     }
     
     func toSwift() -> String {
@@ -120,11 +126,14 @@ struct XMLAttribute {
     }
     
     var initialiserText : String {
+        
+        let unwrapCharacter = typealiasedStrings.contains(self.type) ? "" : "!"
+        
         if isRequired {
-            return "\t\tself.\(self.name) = \(type)(xmlElement.attribute(forName: \"\(name)\")!.stringValue!)\n"
+            return "\t\tself.\(self.name) = \(type)(xmlElement.attribute(forName: \"\(name)\")!.stringValue!)\(unwrapCharacter)\n"
         } else {
             return ["\t\tif let attribute = xmlElement.attribute(forName: \"\(name)\") {",
-                    "\t\t\tself.\(self.name) = \(type)(attribute.stringValue!)",
+                    "\t\t\tself.\(self.name) = \(type)(attribute.stringValue!)\(unwrapCharacter)",
                     "\t\t} else { self.\(self.name) = nil }\n"
             ].joined(separator: "\n")
         }
@@ -215,8 +224,10 @@ struct XMLClass {
         
         var initialiserText = "\tinit(xmlElement: NSXMLElement) {\n"
         
+        
         if let simpleContentType = self.simpleContentType {
-            initialiserText += "\t\tself.data = \(simpleContentType)(xmlElement.stringValue!)\n"
+            let unwrapCharacter = typealiasedStrings.contains(simpleContentType) ? "" : "!"
+            initialiserText += "\t\tself.data = \(simpleContentType)(xmlElement.stringValue!)\(unwrapCharacter)\n"
         }
         
         for attribute in attributes {
@@ -247,6 +258,34 @@ let typealiases = document.rootElement()!.elements(forName: "xs:simpleType")
 let classes = document.rootElement()!.elements(forName: "xs:complexType")
 
 print("import Foundation\n\n")
+
+print("protocol StringInitialisable {")
+print("    init?(_ text: String)")
+print("}")
+print()
+print("extension Int : StringInitialisable {")
+print("    init?(_ string: String) {")
+print("        self.init(string, radix: 10)")
+print("    }")
+print("}")
+print("extension UInt : StringInitialisable {")
+print("    init?(_ string: String) {")
+print("        self.init(string, radix: 10)")
+print("    }")
+print("}")
+
+print("")
+print("extension Float : StringInitialisable {}")
+print("extension String : StringInitialisable {}")
+print("extension Double : StringInitialisable {}")
+print("")
+print("extension Array where Element : StringInitialisable {")
+print("    init?(_ string: String) {")
+print("        let components = string.components(separatedBy: .whitespaces())")
+print("        self = components.flatMap { Element($0) }")
+print("    }")
+print("}")
+print("")
 
 for xmlNode in typealiases {
     print(XMLSimpleType(xmlElement: xmlNode).toSwift())
