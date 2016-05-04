@@ -115,6 +115,75 @@ struct XMLSimpleType {
     }
 }
 
+struct XMLEnumCase {
+    let xmlName : String
+    let name : String
+    let type : String
+    let documentation: String?
+    let innerClass : XMLClass?
+    
+    init(xmlElement: NSXMLElement) {
+        self.xmlName = xmlElement.attribute(forName: "name")!.stringValue!
+        let name = varNameStringToSwiftName(xmlName)
+        self.name = name
+        let type = typeStringToSwiftType(xmlElement.attribute(forName: "type")?.stringValue! ?? name)
+        self.type = type
+        self.documentation = xmlElement.elements(forName: "xs:annotation").first?.elements(forName: "xs:documentation").first?.stringValue
+        
+        self.innerClass = xmlElement.elements(forName: "xs:complexType").first.map { XMLClass(xmlElement: $0, name: type) }
+    }
+    
+    func toSwift() -> String {
+        return "\t\t/**\(self.documentation ?? "")*/\n\t\tcase \(self.name)(\(self.type))"
+    }
+}
+
+struct XMLEnum {
+    let typeName : String
+    let cases : [XMLEnumCase]
+    
+    init(xmlElement: NSXMLElement, typeName: String) {
+        self.typeName = typeName
+        self.cases = xmlElement.elements(forName: "xs:element").map { XMLEnumCase(xmlElement: $0) }
+    }
+    
+    var initialiserText : String {
+        
+        var initialiserText = "\tinit?(xmlElement: NSXMLElement, sourcesToObjects: inout [String : ColladaType]) {\n"
+        
+        for enumCase in self.cases {
+            let isSimpleType = simpleTypeNames.contains(enumCase.type)
+            
+            initialiserText += "if xmlElement.name == \"\(enumCase.xmlName)\" {"
+            if isSimpleType {
+                initialiserText += "\tself = .\(enumCase.name)(\(enumCase.type)(xmlElement.stringValue!)!)\n"
+            } else {
+                initialiserText += "\tself = .\(enumCase.name)(\(enumCase.type)(xmlElement: xmlElement, sourcesToObjects: &sourcesToObjects))\n"
+            }
+            initialiserText += "\treturn\n"
+            initialiserText += "}\n"
+            
+            if !isSimpleType {
+                initialiserText += "if let element = xmlElement.elements(forName: \"\(enumCase.xmlName)\").first {\n"
+                initialiserText += "\tself = .\(enumCase.name)(\(enumCase.type)(xmlElement: element, sourcesToObjects: &sourcesToObjects))\n"
+                initialiserText += "\treturn\n"
+                initialiserText += "}\n"
+            }
+        }
+        initialiserText += "return nil\n"
+        initialiserText += "}"
+        return initialiserText
+    }
+    
+    func toSwift() -> String {
+        return [self.cases.flatMap { $0.innerClass?.toSwift() }.joined(separator: "\n"),
+                   "\tenum \(typeName) {",
+                self.cases.map { $0.toSwift() }.joined(separator: "\n"),
+                self.initialiserText,
+                "\t}"].joined(separator: "\n")
+    }
+}
+
 struct XMLAttribute {
     let xmlName : String
     let name : String
@@ -157,15 +226,20 @@ struct XMLSequenceElement {
     let minOccurs : Int
     let maxOccurs : Int
     let documentation : String?
+    let isForEnum : Bool
     
     let childClass : XMLClass?
     
-    init?(xmlElement: NSXMLElement) {
-        guard let name = xmlElement.attribute(forName: "name")?.stringValue! else { return nil }
+    init?(xmlElement: NSXMLElement, name: String, type: String?, isForEnum : Bool = false) {
+        let name = xmlElement.attribute(forName: "name")?.stringValue! ?? name
+        if name.isEmpty {
+            return nil
+        }
         self.xmlName = name
         let swiftName = varNameStringToSwiftName(name)
         self.name = swiftName
-        self.type = typeStringToSwiftType(xmlElement.attribute(forName: "type")?.stringValue! ?? swiftName)
+        self.type = type ?? typeStringToSwiftType(xmlElement.attribute(forName: "type")?.stringValue! ?? swiftName)
+        self.isForEnum = isForEnum
         
         let minOccursString = xmlElement.attribute(forName: "minOccurs")?.stringValue!
         self.minOccurs = minOccursString != nil ? Int(minOccursString!)! : 1
@@ -194,22 +268,29 @@ struct XMLSequenceElement {
         
         let unwrapCharacter = typealiasedStrings.contains(self.type) ? "" : "!"
         
-        switch (minOccurs, maxOccurs, simpleTypeNames.contains(type)) {
-        case (1, 1, false):
-            return "\t\tself.\(self.name) = \(type)(xmlElement: xmlElement.elements(forName: \"\(self.xmlName)\").first!)\n"
-        case (1, 1, true):
+        switch (minOccurs, maxOccurs, simpleTypeNames.contains(type), self.isForEnum) {
+        case (1, 1, false, false):
+            return "\t\tself.\(self.name) = \(type)(xmlElement: xmlElement.elements(forName: \"\(self.xmlName)\").first!, sourcesToObjects: &sourcesToObjects)\n"
+        case (1, 1, false, true):
+            return "\t\tself.\(self.name) = \(type)(xmlElement: xmlElement, sourcesToObjects: &sourcesToObjects)!\n"
+            
+        case (1, 1, true, _):
             return "\t\tself.\(self.name) = \(type)(xmlElement.elements(forName: \"\(self.xmlName)\").first!.stringValue!)\(unwrapCharacter)\n"
             
-        case (0, 1, false):
+        case (0, 1, false, false):
             return ["\t\tif let childElement = xmlElement.elements(forName: \"\(self.xmlName)\").first {",
-                    "\t\t\tself.\(self.name) = \(type)(xmlElement: childElement)",
+                    "\t\t\tself.\(self.name) = \(type)(xmlElement: childElement, sourcesToObjects: &sourcesToObjects)",
                     "\t\t} else { self.\(self.name) = nil }\n"].joined(separator: "\n")
-        case (0, 1, true):
+         case (0, 1, false, true):
+            return "\t\tself.\(self.name) = \(type)(xmlElement: xmlElement)\n"
+        case (0, 1, true, _):
             return ["\t\tif let childElement = xmlElement.elements(forName: \"\(self.xmlName)\").first {",
                     "\t\t\tself.\(self.name) = \(type)(childElement.stringValue!)\(unwrapCharacter)",
                     "\t\t} else { self.\(self.name) = nil }\n"].joined(separator: "\n")
-        case (_, _, false):
-            return "\t\tself.\(self.name) = xmlElement.elements(forName: \"\(self.xmlName)\").map { \(type)(xmlElement: $0) }\n"
+        case (_, _, false, false):
+            return "\t\tself.\(self.name) = xmlElement.elements(forName: \"\(self.xmlName)\").map { \(type)(xmlElement: $0, sourcesToObjects: &sourcesToObjects) }\n"
+        case (_, _, false, true):
+            return "\t\tself.\(self.name) = xmlElement.children?.flatMap { $0 as? NSXMLElement }.flatMap { \(type)(xmlElement: $0, sourcesToObjects: &sourcesToObjects) } ?? []\n"
         default:
             return "\t\tself.\(self.name) = xmlElement.elements(forName: \"\(self.xmlName)\").map { \(type)($0)\(unwrapCharacter) }\n"
         }
@@ -232,29 +313,58 @@ struct XMLSequenceElement {
     }
 }
 
+struct XMLSequenceChoice {
+    let sequenceElement : XMLSequenceElement
+    let xmlEnum : XMLEnum
+    
+    init(xmlElement: NSXMLElement, variableName: String, typeName: String) {
+        //We're on an xs:choice element.
+        self.xmlEnum = XMLEnum(xmlElement: xmlElement, typeName: typeName)
+        self.sequenceElement = XMLSequenceElement(xmlElement: xmlElement, name: variableName, type: typeName, isForEnum: true)!
+    }
+    
+    var initialiserText : String {
+        return self.sequenceElement.initialiserText
+    }
+    
+    func toSwift() -> String {
+        return self.xmlEnum.toSwift() + "\n" + self.sequenceElement.toSwift()
+    }
+}
+
 struct XMLClass {
     let name : String
     let documentation : String?
     let attributes : [XMLAttribute]
     let sequenceElements : [XMLSequenceElement]
+    let sequenceChoiceElements : [XMLSequenceChoice]
     let simpleContentType : String?
     
     init(xmlElement: NSXMLElement, name: String? = nil) {
         let className = name ?? xmlElement.attribute(forName: "name")!.stringValue!
         
-        self.name = typeStringToSwiftType(className)
+        let name = typeStringToSwiftType(className)
+        self.name = name
         
         self.documentation = xmlElement.elements(forName: "xs:annotation").first?.elements(forName: "xs:documentation").first?.stringValue
         
         self.attributes = xmlElement.elements(forName: "xs:attribute").map { XMLAttribute(xmlElement: $0) }
-        self.sequenceElements = xmlElement.elements(forName: "xs:sequence").first?.elements(forName: "xs:element").flatMap { XMLSequenceElement(xmlElement: $0) } ?? []
+        
+        if let sequence = xmlElement.elements(forName: "xs:sequence").first {
+            self.sequenceElements = sequence.elements(forName: "xs:element").flatMap {
+                return XMLSequenceElement(xmlElement: $0, name: "", type: nil) } ?? []
+            self.sequenceChoiceElements = sequence.elements(forName: "xs:choice").enumerated().map { XMLSequenceChoice(xmlElement: $1, variableName: "choice\($0)", typeName: name + "Choice\($0)") }
+        } else {
+            self.sequenceElements = []
+            self.sequenceChoiceElements = []
+        }
         
         self.simpleContentType = xmlElement.elements(forName: "xs:simpleContent").first?.elements(forName: "xs:extension").first?.attribute(forName: "base").map { typeStringToSwiftType($0.stringValue!) }
     }
     
     var initialiserText : String {
         
-        var initialiserText = "\tinit(xmlElement: NSXMLElement) {\n"
+        var initialiserText = "\tinit(xmlElement: NSXMLElement, sourcesToObjects: inout [String : ColladaType]) {\n"
         
         
         if let simpleContentType = self.simpleContentType {
@@ -270,14 +380,25 @@ struct XMLClass {
             initialiserText += sequenceElement.initialiserText
         }
         
+        for sequenceChoiceElement in sequenceChoiceElements {
+            initialiserText += sequenceChoiceElement.initialiserText
+        }
+        
+        if (self.attributes.contains { $0.xmlName == "id" }) {
+            initialiserText += "\t\t if let id = self.id {\n"
+            initialiserText += "\t\t\tsourcesToObjects[self.id] = self"
+            initialiserText += "\t\t}\n"
+        }
+        
         return initialiserText + "\t}\n"
     }
     
     func toSwift() -> String {
         return ["/**\(documentation ?? "\n")*/",
-                   "class \(name) {",
+                   "final class \(name) : ColladaType {",
                    self.attributes.map { $0.toSwift() }.joined(separator: "\n\n"),
                    self.sequenceElements.map { $0.toSwift() }.joined(separator: "\n\n"),
+                   self.sequenceChoiceElements.map { $0.toSwift() }.joined(separator: "\n\n"),
                    (self.simpleContentType != nil ? "\tlet data: \(self.simpleContentType!)" : ""),
                 "",
                 self.initialiserText,
@@ -290,6 +411,8 @@ let typealiases = document.rootElement()!.elements(forName: "xs:simpleType")
 let classes = document.rootElement()!.elements(forName: "xs:complexType")
 
 print("import Foundation\n\n")
+
+print("protocol ColladaType { }")
 
 print("protocol StringInitialisable {")
 print("    init?(_ text: String)")
