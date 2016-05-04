@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		E90EAFA41CD9A162009D46C9 /* Collada.swift in Sources */ = {isa = PBXBuildFile; fileRef = E90EAFA31CD9A162009D46C9 /* Collada.swift */; };
 		E91E62C41CD8B46C00612CC4 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = E91E62C31CD8B46C00612CC4 /* main.swift */; };
 		E91E92751CD869350050191C /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = E91E92741CD869350050191C /* main.swift */; };
 /* End PBXBuildFile section */
@@ -33,6 +34,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		E90EAFA31CD9A162009D46C9 /* Collada.swift */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.swift; path = Collada.swift; sourceTree = "<group>"; };
 		E91E62C11CD8B46C00612CC4 /* SchemaTest */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = SchemaTest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E91E62C31CD8B46C00612CC4 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		E91E92711CD869350050191C /* XMLSchemaGeneration */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = XMLSchemaGeneration; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -60,6 +62,7 @@
 		E91E62C21CD8B46C00612CC4 /* SchemaTest */ = {
 			isa = PBXGroup;
 			children = (
+				E90EAFA31CD9A162009D46C9 /* Collada.swift */,
 				E91E62C31CD8B46C00612CC4 /* main.swift */,
 			);
 			path = SchemaTest;
@@ -169,6 +172,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				E90EAFA41CD9A162009D46C9 /* Collada.swift in Sources */,
 				E91E62C41CD8B46C00612CC4 /* main.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

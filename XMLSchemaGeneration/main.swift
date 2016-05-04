@@ -8,7 +8,7 @@
 
 import Foundation
 
-var typealiasedStrings : Set<String> = ["String"]
+var typealiasedStrings : Set<String> = ["String", "GlesTexcombinerOperandRgbEnum", "GlesTexcombinerOperandAlphaEnum"]
 var simpleTypeNames : Set<String> = ["String", "Float", "NSDate"]
 
 func typeStringToSwiftType(_ typeString : String) -> String {
@@ -21,7 +21,6 @@ func typeStringToSwiftType(_ typeString : String) -> String {
         }.joined(separator: "")
     
     switch modifiedTypeString {
-        
     case "Xs:double":
         return "Double"
     case "Xs:long":
@@ -48,6 +47,8 @@ func typeStringToSwiftType(_ typeString : String) -> String {
         return "Float"
     case "Xs:dateTime":
         return "NSDate"
+    case "AuthorEmail":
+        fallthrough
     case "Xs:IDREFS":
         fallthrough
     case "Xs:anyURI":
@@ -157,11 +158,14 @@ struct XMLSequenceElement {
     let maxOccurs : Int
     let documentation : String?
     
+    let childClass : XMLClass?
+    
     init?(xmlElement: NSXMLElement) {
         guard let name = xmlElement.attribute(forName: "name")?.stringValue! else { return nil }
         self.xmlName = name
-        self.name = varNameStringToSwiftName(name)
-        self.type = typeStringToSwiftType(xmlElement.attribute(forName: "type")?.stringValue! ?? "Any")
+        let swiftName = varNameStringToSwiftName(name)
+        self.name = swiftName
+        self.type = typeStringToSwiftType(xmlElement.attribute(forName: "type")?.stringValue! ?? swiftName)
         
         let minOccursString = xmlElement.attribute(forName: "minOccurs")?.stringValue!
         self.minOccurs = minOccursString != nil ? Int(minOccursString!)! : 1
@@ -178,6 +182,12 @@ struct XMLSequenceElement {
         }
         
         self.documentation = xmlElement.elements(forName: "xs:annotation").first?.elements(forName: "xs:documentation").first?.stringValue
+        
+        if let childClass = xmlElement.elements(forName: "xs:complexType").first {
+            self.childClass = XMLClass(xmlElement: childClass, name: self.type)
+        } else {
+            self.childClass = nil
+        }
     }
     
     var initialiserText : String {
@@ -216,7 +226,9 @@ struct XMLSequenceElement {
             typeString = "[\(self.type)]"
         }
         
-        return "\t/**\(documentation ?? "")*/\n\tlet \(name): \(typeString)"
+        let subType = self.childClass?.toSwift() ?? ""
+        
+        return "\t\(subType)\n\t/**\(documentation ?? "")*/\n\tlet \(name): \(typeString)"
     }
 }
 
@@ -227,8 +239,8 @@ struct XMLClass {
     let sequenceElements : [XMLSequenceElement]
     let simpleContentType : String?
     
-    init(xmlElement: NSXMLElement) {
-        let className = xmlElement.attribute(forName: "name")!.stringValue!
+    init(xmlElement: NSXMLElement, name: String? = nil) {
+        let className = name ?? xmlElement.attribute(forName: "name")!.stringValue!
         
         self.name = typeStringToSwiftType(className)
         
@@ -298,7 +310,7 @@ print("    init?(_ string: String) {")
 print("        self.init(string, radix: 10)")
 print("    }")
 print("}")
-
+print()
 print("extension Bool : StringInitialisable {")
 print("    init?(_ string: String) {")
 print("        if string == \"true\" {")
@@ -308,6 +320,7 @@ print("             self = false")
 print("        } else { return nil }")
 print("    }")
 print("}")
+print()
 
 print("")
 print("extension Float : StringInitialisable {}")
