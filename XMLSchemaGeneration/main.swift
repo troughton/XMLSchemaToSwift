@@ -9,6 +9,7 @@
 import Foundation
 
 var typealiasedStrings : Set<String> = ["String"]
+var simpleTypeNames : Set<String> = ["String", "Float", "NSDate"]
 
 func typeStringToSwiftType(_ typeString : String) -> String {
     let transformedComponents = typeString.components(separatedBy: "_")
@@ -104,6 +105,8 @@ struct XMLSimpleType {
         if self.base == "String" {
             typealiasedStrings.insert(self.name)
         }
+        
+        simpleTypeNames.insert(self.name)
     }
     
     func toSwift() -> String {
@@ -112,13 +115,15 @@ struct XMLSimpleType {
 }
 
 struct XMLAttribute {
+    let xmlName : String
     let name : String
     let type : String
     let isRequired : Bool
     let documentation : String?
     
     init(xmlElement: NSXMLElement) {
-        self.name = varNameStringToSwiftName(xmlElement.attribute(forName: "name")!.stringValue!)
+        self.xmlName = xmlElement.attribute(forName: "name")!.stringValue!
+        self.name = varNameStringToSwiftName(xmlName)
         self.type = typeStringToSwiftType(xmlElement.attribute(forName: "type")!.stringValue!)
         self.isRequired = xmlElement.attribute(forName: "use")?.stringValue! == "required"
         
@@ -130,9 +135,9 @@ struct XMLAttribute {
         let unwrapCharacter = typealiasedStrings.contains(self.type) ? "" : "!"
         
         if isRequired {
-            return "\t\tself.\(self.name) = \(type)(xmlElement.attribute(forName: \"\(name)\")!.stringValue!)\(unwrapCharacter)\n"
+            return "\t\tself.\(self.name) = \(type)(xmlElement.attribute(forName: \"\(xmlName)\")!.stringValue!)\(unwrapCharacter)\n"
         } else {
-            return ["\t\tif let attribute = xmlElement.attribute(forName: \"\(name)\") {",
+            return ["\t\tif let attribute = xmlElement.attribute(forName: \"\(xmlName)\") {",
                     "\t\t\tself.\(self.name) = \(type)(attribute.stringValue!)\(unwrapCharacter)",
                     "\t\t} else { self.\(self.name) = nil }\n"
             ].joined(separator: "\n")
@@ -145,6 +150,7 @@ struct XMLAttribute {
 }
 
 struct XMLSequenceElement {
+    let xmlName : String
     let name : String
     let type : String
     let minOccurs : Int
@@ -153,8 +159,10 @@ struct XMLSequenceElement {
     
     init?(xmlElement: NSXMLElement) {
         guard let name = xmlElement.attribute(forName: "name")?.stringValue! else { return nil }
+        self.xmlName = name
         self.name = varNameStringToSwiftName(name)
         self.type = typeStringToSwiftType(xmlElement.attribute(forName: "type")?.stringValue! ?? "Any")
+        
         let minOccursString = xmlElement.attribute(forName: "minOccurs")?.stringValue!
         self.minOccurs = minOccursString != nil ? Int(minOccursString!)! : 1
         
@@ -173,15 +181,27 @@ struct XMLSequenceElement {
     }
     
     var initialiserText : String {
-        switch (minOccurs, maxOccurs) {
-        case (1, 1):
-            return "\t\tself.\(self.name) = \(type)(xmlElement: xmlElement.elements(forName: \"\(self.name)\").first!)\n"
-        case (0, 1):
-            return ["\t\tif let childElement = xmlElement.elements(forName: \"\(self.name)\").first {",
+        
+        let unwrapCharacter = typealiasedStrings.contains(self.type) ? "" : "!"
+        
+        switch (minOccurs, maxOccurs, simpleTypeNames.contains(type)) {
+        case (1, 1, false):
+            return "\t\tself.\(self.name) = \(type)(xmlElement: xmlElement.elements(forName: \"\(self.xmlName)\").first!)\n"
+        case (1, 1, true):
+            return "\t\tself.\(self.name) = \(type)(xmlElement.elements(forName: \"\(self.xmlName)\").first!.stringValue!)\(unwrapCharacter)\n"
+            
+        case (0, 1, false):
+            return ["\t\tif let childElement = xmlElement.elements(forName: \"\(self.xmlName)\").first {",
                     "\t\t\tself.\(self.name) = \(type)(xmlElement: childElement)",
                     "\t\t} else { self.\(self.name) = nil }\n"].joined(separator: "\n")
+        case (0, 1, true):
+            return ["\t\tif let childElement = xmlElement.elements(forName: \"\(self.xmlName)\").first {",
+                    "\t\t\tself.\(self.name) = \(type)(childElement.stringValue!)\(unwrapCharacter)",
+                    "\t\t} else { self.\(self.name) = nil }\n"].joined(separator: "\n")
+        case (_, _, false):
+            return "\t\tself.\(self.name) = xmlElement.elements(forName: \"\(self.xmlName)\").map { \(type)(xmlElement: $0) }\n"
         default:
-            return "\t\tself.\(self.name) = xmlElement.elements(forName: \"\(self.name)\").map { \(type)(xmlElement: $0) }\n"
+            return "\t\tself.\(self.name) = xmlElement.elements(forName: \"\(self.xmlName)\").map { \(type)($0)\(unwrapCharacter) }\n"
         }
     }
     
@@ -271,6 +291,21 @@ print("}")
 print("extension UInt : StringInitialisable {")
 print("    init?(_ string: String) {")
 print("        self.init(string, radix: 10)")
+print("    }")
+print("}")
+print("extension UInt8 : StringInitialisable {")
+print("    init?(_ string: String) {")
+print("        self.init(string, radix: 10)")
+print("    }")
+print("}")
+
+print("extension Bool : StringInitialisable {")
+print("    init?(_ string: String) {")
+print("        if string == \"true\" {")
+print("             self = true")
+print("        } else if string == \"false\" {")
+print("             self = false")
+print("        } else { return nil }")
 print("    }")
 print("}")
 
